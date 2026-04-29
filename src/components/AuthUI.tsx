@@ -17,19 +17,13 @@ import {
   Calendar
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { 
-  auth, 
-  signInWithGoogle, 
-  signInWithEmailAndPassword, 
-  createUserWithEmailAndPassword, 
-  sendPasswordResetEmail,
-  db
-} from '../lib/firebase';
+import { auth, signInWithGoogle, signInWithEmailAndPassword, createUserWithEmailAndPassword, sendPasswordResetEmail, db } from '../lib/firebase';
 import { updateProfile } from 'firebase/auth';
-import { doc, setDoc } from 'firebase/firestore';
+import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { cn } from '../lib/utils';
+import { handleFirestoreError, OperationType } from '../lib/firestoreUtils';
 
-export default function AuthUI() {
+export default function AuthUI({ onBack }: { onBack: () => void }) {
   const [mode, setMode] = useState<'login' | 'signup' | 'forgot'>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -40,6 +34,33 @@ export default function AuthUI() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+
+  const handleGoogleSignIn = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const userCredential = await signInWithGoogle();
+      const user = userCredential.user;
+      
+      // Ensure the users document exists with basic info
+      const profilePath = `users/${user.uid}`;
+      try {
+        await setDoc(doc(db, 'users', user.uid), {
+          userId: user.uid,
+          displayName: user.displayName || user.email?.split('@')[0] || 'Student',
+          email: user.email,
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp()
+        }, { merge: true });
+      } catch (dbErr) {
+        handleFirestoreError(dbErr, OperationType.WRITE, profilePath);
+      }
+    } catch (err: any) {
+      setError(err.message || String(err));
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -54,23 +75,27 @@ export default function AuthUI() {
         const userCredential = await createUserWithEmailAndPassword(auth, email, password);
         const user = userCredential.user;
         
-        // Update Firebase Auth profile
         await updateProfile(user, { displayName: name });
         
-        // Save extra details to Firestore
-        await setDoc(doc(db, 'users', user.uid), {
-          name,
-          email,
-          department,
-          year,
-          createdAt: new Date().toISOString()
-        });
+        const path = `users/${user.uid}`;
+        try {
+          await setDoc(doc(db, 'users', user.uid), {
+            userId: user.uid,
+            displayName: name,
+            email,
+            department,
+            year,
+            createdAt: serverTimestamp()
+          });
+        } catch (dbErr) {
+          handleFirestoreError(dbErr, OperationType.WRITE, path);
+        }
       } else {
         await sendPasswordResetEmail(auth, email);
         setSuccess('Password reset email sent. Check your inbox.');
       }
     } catch (err: any) {
-      setError(err.message || 'An error occurred. Please try again.');
+      setError(err.message || String(err));
     } finally {
       setLoading(false);
     }
@@ -138,6 +163,14 @@ export default function AuthUI() {
       {/* Right: Modern Auth Form */}
       <div className="flex flex-col justify-center p-8 lg:p-24 bg-slate-50 relative">
         <div className="mx-auto w-full max-w-sm">
+          <button 
+            onClick={onBack}
+            className="mb-8 flex items-center gap-2 text-slate-400 hover:text-slate-900 transition-colors font-bold text-[10px] uppercase tracking-widest group"
+          >
+            <ArrowRight className="h-4 w-4 rotate-180 group-hover:-translate-x-1 transition-transform text-blue-500" />
+            Back to Welcome
+          </button>
+
           <div className="lg:hidden flex items-center gap-3 mb-12 justify-center">
             <div className="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center">
               <BrainCircuit className="h-6 w-6 text-white" />
@@ -156,7 +189,7 @@ export default function AuthUI() {
 
           <div className="space-y-4 mb-8">
             <button
-              onClick={() => signInWithGoogle()}
+              onClick={handleGoogleSignIn}
               className="flex w-full items-center justify-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3.5 text-sm font-bold text-slate-700 shadow-sm transition-all hover:bg-slate-50 active:scale-[0.98]"
             >
               <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="Google" className="h-5 w-5" />

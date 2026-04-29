@@ -19,7 +19,11 @@ import PerformanceReport from './PerformanceReport';
 
 type QuestionType = 'short' | 'long' | 'numerical' | 'diagram';
 
-export default function PracticeSessionUI({ subject, onBack }: { subject: any, onBack: () => void }) {
+export default function PracticeSessionUI({ subject, onBack, onUpdateProgress }: { 
+  subject: any, 
+  onBack: () => void,
+  onUpdateProgress?: (subjectName: string, progress: number) => void
+}) {
   const [loading, setLoading] = useState(true);
   const [questions, setQuestions] = useState<any[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -34,6 +38,15 @@ export default function PracticeSessionUI({ subject, onBack }: { subject: any, o
   const [sessionHistory, setSessionHistory] = useState<any[]>([]);
   const [sessionAnalysis, setSessionAnalysis] = useState<any>(null);
   const [analyzingPerformance, setAnalyzingPerformance] = useState(false);
+
+  // Sync progress to dashboard/Firestore when session finishes
+  useEffect(() => {
+    if (sessionFinished && scores.length > 0 && onUpdateProgress && subject) {
+      const avg = scores.reduce((a, b) => a + b, 0) / scores.length;
+      const progressPercent = Math.min(100, Math.round(avg * 10));
+      onUpdateProgress(subject.name, progressPercent);
+    }
+  }, [sessionFinished, scores.length, subject?.name]);
 
   useEffect(() => {
     fetchQuestions(activeType);

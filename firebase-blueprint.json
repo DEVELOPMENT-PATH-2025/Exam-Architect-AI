@@ -9,9 +9,13 @@
         "email": { "type": "string" },
         "displayName": { "type": "string" },
         "university": { "type": "string" },
-        "createdAt": { "type": "string", "format": "date-time" }
+        "department": { "type": "string" },
+        "year": { "type": "string" },
+        "bio": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
       },
-      "required": ["userId", "email", "createdAt"]
+      "required": ["userId", "email"]
     },
     "Curriculum": {
       "title": "Curriculum",
@@ -29,7 +33,8 @@
             "properties": {
               "name": { "type": "string" },
               "code": { "type": "string" },
-              "topics": { "type": "array", "items": { "type": "string" } }
+              "topics": { "type": "array", "items": { "type": "string" } },
+              "progress": { "type": "number" }
             }
           }
         },

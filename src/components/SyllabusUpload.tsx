@@ -5,6 +5,7 @@ import { syllabusParsingAgent } from '../services/geminiService';
 import { db, auth } from '../lib/firebase';
 import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
 import { cn } from '../lib/utils';
+import { handleFirestoreError, OperationType } from '../lib/firestoreUtils';
 
 export default function SyllabusUpload({ onComplete }: { onComplete: (curriculum: any) => void }) {
   const [file, setFile] = useState<File | null>(null);
@@ -51,16 +52,27 @@ export default function SyllabusUpload({ onComplete }: { onComplete: (curriculum
       const base64 = await toBase64(file);
       const data = await syllabusParsingAgent(base64);
       
-      const docRef = await addDoc(collection(db, 'curricula'), {
-        userId: auth.currentUser?.uid,
-        ...data,
-        createdAt: serverTimestamp()
-      });
+      const path = 'curricula';
+      let docRef;
+      try {
+        docRef = await addDoc(collection(db, path), {
+          userId: auth.currentUser?.uid,
+          ...data,
+          createdAt: serverTimestamp()
+        });
+      } catch (dbErr) {
+        handleFirestoreError(dbErr, OperationType.CREATE, path);
+      }
 
-      onComplete({ id: docRef.id, ...data });
+      if (docRef) {
+        onComplete({ id: docRef.id, ...data });
+      }
     } catch (err: any) {
       console.error(err);
-      setError("Failed to parse syllabus. Please try a different file.");
+      const errorMessage = typeof err.message === 'string' && err.message.startsWith('{') 
+        ? "Permission error. Contact admin." 
+        : "Failed to parse syllabus. Please try a different file.";
+      setError(errorMessage);
     } finally {
       setLoading(false);
     }

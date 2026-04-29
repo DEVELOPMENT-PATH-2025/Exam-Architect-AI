@@ -7,6 +7,11 @@ export default function Dashboard({ curriculum, onStartPractice, onGenerateMock 
   onStartPractice: (subject: any) => void,
   onGenerateMock: () => void
 }) {
+  const subjects = curriculum?.subjects || [];
+  const overallMastery = subjects.length > 0 
+    ? Math.round(subjects.reduce((acc: number, sub: any) => acc + (sub.progress || 0), 0) / subjects.length)
+    : 0;
+
   if (!curriculum) {
     return (
       <div className="flex flex-col items-center justify-center py-20 text-center">
@@ -34,12 +39,16 @@ export default function Dashboard({ curriculum, onStartPractice, onGenerateMock 
               <p className="text-sm text-slate-500 italic">Universitiy Specific Depth: <span className="text-blue-600 font-medium">Calibrated</span></p>
             </div>
             <div className="text-right">
-              <span className="text-2xl font-bold text-slate-900">0%</span>
+              <span className="text-2xl font-bold text-slate-900">{overallMastery}%</span>
               <p className="text-xs text-slate-400 uppercase tracking-wide font-bold">Concept Mastery</p>
             </div>
           </div>
           <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
-            <div className="h-full bg-blue-500 w-[0%]"></div>
+            <motion.div 
+              initial={{ width: 0 }}
+              animate={{ width: `${overallMastery}%` }}
+              className="h-full bg-blue-500"
+            ></motion.div>
           </div>
         </div>
 
@@ -52,7 +61,7 @@ export default function Dashboard({ curriculum, onStartPractice, onGenerateMock 
             </h3>
           </div>
           <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-4">
-            {curriculum.subjects.map((sub: any, idx: number) => (
+            {subjects.map((sub: any, idx: number) => (
               <motion.div
                 key={sub.code || idx}
                 initial={{ opacity: 0, y: 10 }}
@@ -69,9 +78,22 @@ export default function Dashboard({ curriculum, onStartPractice, onGenerateMock 
                   <h4 className="text-sm font-bold text-slate-800 leading-tight mb-2 group-hover:text-blue-600 transition-colors">{sub.name}</h4>
                   <p className="text-[11px] text-slate-500 line-clamp-2">Topics: {sub.topics?.join(", ")}</p>
                 </div>
-                <div className="mt-4 flex items-center justify-between pt-3 border-t border-slate-200/50">
-                  <span className="text-[10px] font-bold text-slate-400 uppercase">0% Progress</span>
-                  <ChevronIcon className="w-3 h-3 text-slate-300 group-hover:text-blue-500" />
+                <div className="mt-4 flex flex-col gap-2 pt-3 border-t border-slate-200/50">
+                  <div className="flex items-center justify-between">
+                    <span className={cn(
+                      "text-[10px] font-bold uppercase",
+                      (sub.progress || 0) > 0 ? "text-blue-600" : "text-slate-400"
+                    )}>
+                      {sub.progress || 0}% Progress
+                    </span>
+                    <ChevronIcon className="w-3 h-3 text-slate-300 group-hover:text-blue-500" />
+                  </div>
+                  <div className="h-1 bg-slate-200 rounded-full overflow-hidden">
+                    <div 
+                      className="h-full bg-blue-500 transition-all duration-1000" 
+                      style={{ width: `${sub.progress || 0}%` }}
+                    />
+                  </div>
                 </div>
               </motion.div>
             ))}

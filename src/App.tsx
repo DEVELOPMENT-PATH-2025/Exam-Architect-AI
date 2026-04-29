@@ -20,8 +20,9 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { auth, signInWithGoogle, db } from './lib/firebase';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
-import { collection, query, where, getDocs, addDoc, serverTimestamp, doc, getDoc } from 'firebase/firestore';
+import { collection, query, where, getDocs, addDoc, serverTimestamp, doc, getDoc, onSnapshot, setDoc } from 'firebase/firestore';
 import { cn } from './lib/utils';
+import { handleFirestoreError, OperationType } from './lib/firestoreUtils';
 
 // Components
 import SyllabusUpload from './components/SyllabusUpload';
@@ -29,21 +30,29 @@ import Dashboard from './components/Dashboard';
 import PracticeSessionUI from './components/PracticeSessionUI';
 import MockPaperGenerator from './components/MockPaperGenerator';
 import AuthUI from './components/AuthUI';
+import WelcomePage from './components/WelcomePage';
+import AIAssistantBot from './components/AIAssistantBot';
+import ProfileSettings from './components/ProfileSettings';
 
 export default function App() {
   const [user, setUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [showAuth, setShowAuth] = useState(false);
   const [activeTab, setActiveTab] = useState<'dashboard' | 'upload' | 'practice' | 'mock'>('dashboard');
   const [selectedSubject, setSelectedSubject] = useState<any>(null);
   const [curriculum, setCurriculum] = useState<any>(null);
   const [profile, setProfile] = useState<any>(null);
+  const [showSettings, setShowSettings] = useState(false);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (u) => {
+    let unsubscribeCurriculum: (() => void) | null = null;
+    let unsubscribeProfile: (() => void) | null = null;
+
+    const unsubscribeAuth = onAuthStateChanged(auth, (u) => {
       setUser(u);
       if (u) {
-        fetchUserCurriculum(u.uid);
-        fetchUserProfile(u.uid);
+        unsubscribeCurriculum = listenToUserCurriculum(u.uid);
+        unsubscribeProfile = listenToUserProfile(u.uid);
       } else {
         setLoading(false);
       }
@@ -53,34 +62,69 @@ export default function App() {
     window.addEventListener('nav-to-upload', handleNavUpload);
 
     return () => {
-      unsubscribe();
+      unsubscribeAuth();
+      if (unsubscribeCurriculum) unsubscribeCurriculum();
+      if (unsubscribeProfile) unsubscribeProfile();
       window.removeEventListener('nav-to-upload', handleNavUpload);
     };
   }, []);
 
-  const fetchUserCurriculum = async (uid: string) => {
-    try {
-      const q = query(collection(db, 'curricula'), where('userId', '==', uid));
-      const snapshot = await getDocs(q);
+  const listenToUserCurriculum = (uid: string) => {
+    const q = query(collection(db, 'curricula'), where('userId', '==', uid));
+    return onSnapshot(q, (snapshot) => {
       if (!snapshot.empty) {
         setCurriculum({ id: snapshot.docs[0].id, ...snapshot.docs[0].data() });
       }
-    } catch (err) {
-      console.error("Curriculum fetch error:", err);
-    }
+    }, (err) => {
+      handleFirestoreError(err, OperationType.LIST, 'curricula');
+    });
   };
 
-  const fetchUserProfile = async (uid: string) => {
-    try {
-      const docRef = doc(db, 'users', uid);
-      const snapshot = await getDoc(docRef);
+  const listenToUserProfile = (uid: string) => {
+    const docRef = doc(db, 'users', uid);
+    return onSnapshot(docRef, (snapshot) => {
       if (snapshot.exists()) {
         setProfile(snapshot.data());
       }
-    } catch (err) {
-      console.error("Profile fetch error:", err);
-    } finally {
       setLoading(false);
+    }, (err) => {
+      handleFirestoreError(err, OperationType.GET, `users/${uid}`);
+      setLoading(false);
+    });
+  };
+
+  const updateSubjectProgress = async (subjectName: string, progress: number) => {
+    if (!user || !curriculum) return;
+    const path = `curricula/${curriculum.id}`;
+    try {
+      const updatedSubjects = curriculum.subjects.map((sub: any) => {
+        if (sub.name === subjectName) {
+          const currentProgress = sub.progress || 0;
+          return { ...sub, progress: Math.max(currentProgress, progress) };
+        }
+        return sub;
+      });
+
+      const docRef = doc(db, 'curricula', curriculum.id);
+      await setDoc(docRef, { subjects: updatedSubjects }, { merge: true });
+    } catch (err) {
+      handleFirestoreError(err, OperationType.UPDATE, path);
+    }
+  };
+
+  const updateProfile = async (data: any) => {
+    if (!user) return;
+    const path = `users/${user.uid}`;
+    try {
+      const docRef = doc(db, 'users', user.uid);
+      await setDoc(docRef, { 
+        ...data, 
+        userId: user.uid, 
+        email: user.email,
+        updatedAt: serverTimestamp() 
+      }, { merge: true });
+    } catch (err) {
+      handleFirestoreError(err, OperationType.UPDATE, path);
     }
   };
 
@@ -98,7 +142,16 @@ export default function App() {
   }
 
   if (!user) {
-    return <AuthUI />;
+    return (
+      <>
+        {showAuth ? (
+          <AuthUI onBack={() => setShowAuth(false)} />
+        ) : (
+          <WelcomePage onGetStarted={() => setShowAuth(true)} />
+        )}
+        <AIAssistantBot />
+      </>
+    );
   }
 
   const renderContent = () => {
@@ -106,7 +159,7 @@ export default function App() {
       case 'upload':
         return <SyllabusUpload onComplete={(c) => { setCurriculum(c); setActiveTab('dashboard'); }} />;
       case 'practice':
-        return <PracticeSessionUI subject={selectedSubject} onBack={() => setActiveTab('dashboard')} />;
+        return <PracticeSessionUI subject={selectedSubject} onBack={() => setActiveTab('dashboard')} onUpdateProgress={updateSubjectProgress} />;
       case 'mock':
         return <MockPaperGenerator curriculum={curriculum} onBack={() => setActiveTab('dashboard')} />;
       default:
@@ -210,9 +263,12 @@ export default function App() {
             >
               Generate Full Mock Exam
             </button>
-            <div className="flex items-center gap-3 pl-4 border-l border-slate-200">
+            <button 
+              onClick={() => setShowSettings(true)}
+              className="flex items-center gap-3 pl-4 border-l border-slate-200 hover:opacity-75 transition-opacity text-left"
+            >
               <div className="text-right hidden sm:block">
-                <p className="text-xs font-bold text-slate-900 leading-none mb-1">{user.displayName || user.email?.split('@')[0] || 'Student'}</p>
+                <p className="text-xs font-bold text-slate-900 leading-none mb-1">{profile?.displayName || user.displayName || user.email?.split('@')[0] || 'Student'}</p>
                 <p className="text-[10px] text-slate-400 font-medium leading-none">Architect Profile</p>
               </div>
               <img 
@@ -220,7 +276,7 @@ export default function App() {
                 alt="Avatar" 
                 className="h-8 w-8 rounded-lg bg-slate-200 ring-2 ring-slate-100 object-cover"
               />
-            </div>
+            </button>
           </div>
         </header>
 
@@ -240,6 +296,17 @@ export default function App() {
           </div>
         </div>
       </main>
+      <AIAssistantBot context={curriculum ? JSON.stringify(curriculum) : undefined} />
+      
+      <AnimatePresence>
+        {showSettings && (
+          <ProfileSettings 
+            profile={profile || { displayName: user.displayName || user.email }}
+            onClose={() => setShowSettings(false)}
+            onUpdate={updateProfile}
+          />
+        )}
+      </AnimatePresence>
     </div>
   );
 }

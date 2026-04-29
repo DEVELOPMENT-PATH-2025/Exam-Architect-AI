@@ -128,7 +128,14 @@ export const questionBankAgent = async (
   3. Include "Numerical Problem" types with specific values.
   4. Include "Diagrammatic Analysis" prompts.
   5. Ensure every question is a distinct, high-quality challenge.
-  Quantity: Generate exactly ${count} unique questions.
+  
+  CRITICAL FOR DIVERSITY:
+  - DO NOT use repetitive sentence structures like "Explore the relationship between...".
+  - DO NOT append incrementing numbers to question texts.
+  - Vary the verbs: Use "Derive", "Explain", "Analyze", "Compare", "Illustrate", "Evaluate", "Calculate".
+  - Each question should focus on a DIFFERENT sub-topic or specific case within the unit.
+  
+  Quantity: Generate exactly ${count} unique and diverse questions.
   Output: Provide model answers and key terms for each.`;
 
   const response = await ai.models.generateContent({
@@ -184,4 +191,33 @@ export const performanceAnalystAgent = async (
     }
   });
   return JSON.parse(response.text || "{}");
+};
+
+export const chatDoubtsAgent = async (
+  history: { role: 'user' | 'model', parts: { text: string }[] }[],
+  userMessage: string,
+  context?: string
+) => {
+  const model = "gemini-3.1-pro-preview";
+  const systemInstruction = `You are ExamArchitect AI, a specialized tutor for university students. 
+  Your primary goal is to help students solve academic doubts, explain complex concepts, and provide derivations or equations when requested.
+  Context provided: ${context || "No specific curriculum context available yet."}
+  
+  Guidelines:
+  1. Be technical yet clear.
+  2. Use Markdown for formatting (bolding, lists, etc.).
+  3. Use LaTeX/standard math notation for equations.
+  4. If asked to solve a numerical, show step-by-step logic.
+  5. Keep responses concise but thorough.`;
+
+  const chat = ai.chats.create({
+    model: model,
+    config: {
+      systemInstruction,
+    },
+    history: history
+  });
+
+  const response = await chat.sendMessage({ message: userMessage });
+  return response.text;
 };
